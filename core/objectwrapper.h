@@ -506,7 +506,7 @@ private: \
 template<> \
 class GammaRay::ObjectWrapper<Class> \
 { \
-protected: \
+public: \
     static std::tuple<> __data(ObjectWrapperPrivate *, __number<0>) { return {}; } \
     static void __metadata(__number<0>, MetaObject *) {} \
     static void __connectToUpdates(ObjectWrapperPrivate *, __number<0>) {} \
@@ -522,6 +522,7 @@ protected: \
     : d(std::move(controlBlock)) \
     {} \
  \
+    void _clear() { d.reset(); } \
  \
  ObjectWrapperPrivate *d_ptr() const { return d.get(); } \
  std::shared_ptr<ObjectWrapperPrivate> cloneD() const { return d; } \
@@ -594,31 +595,33 @@ Q_DECLARE_METATYPE(GammaRay::ObjectView<Class>)
 template<> \
 class GammaRay::ObjectWrapper<Class> : public GammaRay::ObjectWrapper<BaseClass1>, public GammaRay::ObjectWrapper<BaseClass2> \
 { \
-    protected: \
-        /* We hide the base classes __data and __metadata functions on purpose and start counting at 0 again. */ \
-        static std::tuple<> __data(ObjectWrapperPrivate *, __number<0>) { return {}; } \
-        static void __metadata(__number<0>, MetaObject *) {} \
-        static void __connectToUpdates(ObjectWrapperPrivate * d, __number<0>) { \
-            ObjectWrapper<BaseClass1>::__connectToUpdates(d, __number<255>{}); \
-            ObjectWrapper<BaseClass2>::__connectToUpdates(d, __number<255>{}); \
-        } \
-        \
-        public: \
-            using PropertyCache_t = PropertyCache<Class, BaseClass1, BaseClass2>; \
-            \
-            explicit ObjectWrapper<Class>(std::shared_ptr<ObjectWrapperPrivate> controlBlock) \
-            : ObjectWrapper<BaseClass1>(controlBlock) \
-            , ObjectWrapper<BaseClass2>(std::move(controlBlock)) \
-            {} \
-            \
-            Class *object() const \
-            { \
-                return d_ptr()->object<Class>(); \
-            } \
-            \
-            OBJECT_WRAPPER_COMMON(Class, __VA_ARGS__) \
- \
 public: \
+    /* We hide the base classes __data and __metadata functions on purpose and start counting at 0 again. */ \
+    static std::tuple<> __data(ObjectWrapperPrivate *, __number<0>) { return {}; } \
+    static void __metadata(__number<0>, MetaObject *) {} \
+    static void __connectToUpdates(ObjectWrapperPrivate * d, __number<0>) { \
+        ObjectWrapper<BaseClass1>::__connectToUpdates(d, __number<255>{}); \
+        ObjectWrapper<BaseClass2>::__connectToUpdates(d, __number<255>{}); \
+    } \
+    \
+    using PropertyCache_t = PropertyCache<Class, BaseClass1, BaseClass2>; \
+    \
+    explicit ObjectWrapper<Class>(std::shared_ptr<ObjectWrapperPrivate> controlBlock) \
+    : ObjectWrapper<BaseClass1>(controlBlock) \
+    , ObjectWrapper<BaseClass2>(std::move(controlBlock)) \
+    {} \
+    \
+    Class *object() const \
+    { \
+        return d_ptr()->object<Class>(); \
+    } \
+    \
+    void _clear() \
+    { \
+        ObjectWrapper<BaseClass1>::d.reset(); \
+        ObjectWrapper<BaseClass2>::d.reset(); \
+    } \
+ \
     ObjectWrapperPrivate *d_ptr() const { return ObjectWrapper<BaseClass1>::d.get(); } \
     std::shared_ptr<ObjectWrapperPrivate> cloneD() const { return ObjectWrapper<BaseClass1>::d; } \
     \
@@ -929,6 +932,7 @@ public:
     inline T *data() const;
     inline ObjectId objectId() const;
 
+    inline void clear();
 
 
     static MetaObject *staticMetaObject();
@@ -1029,6 +1033,8 @@ public:
     inline ObjectWrapper<T> &operator*();
     inline T *object() const;
     inline ObjectId objectId() const;
+
+    inline void clear();
 
 private:
     std::weak_ptr<ObjectWrapperPrivate> d;
@@ -1254,6 +1260,11 @@ ObjectId ObjectHandle<T>::objectId() const
     return ObjectId {m_d.object()};
 }
 
+template<typename T>
+void ObjectHandle<T>::clear()
+{
+    m_d._clear();
+}
 
 
 
@@ -1360,6 +1371,12 @@ template<typename T>
 ObjectId ObjectView<T>::objectId() const
 {
     return ObjectId {d.lock()->template object<T>()};
+}
+
+template<typename T>
+void ObjectView<T>::clear()
+{
+    d.reset();
 }
 
 // === ObjectShadowDataRepository ===
