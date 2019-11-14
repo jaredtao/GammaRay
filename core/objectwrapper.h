@@ -512,16 +512,17 @@ protected: \
         return d->object<Class>(); \
     } \
  \
-public: \
     using PropertyCache_t = PropertyCache<Class>; \
  \
     explicit ObjectWrapper<Class>(std::shared_ptr<ObjectWrapperPrivate> controlBlock) \
     : d(std::move(controlBlock)) \
     {} \
  \
-    OBJECT_WRAPPER_COMMON(Class, __VA_ARGS__) \
  \
  ObjectWrapperPrivate *d_ptr() const { return d.get(); } \
+ std::shared_ptr<ObjectWrapperPrivate> cloneD() const { return d; } \
+ \
+    OBJECT_WRAPPER_COMMON(Class, __VA_ARGS__) \
  \
 protected: \
     std::shared_ptr<ObjectWrapperPrivate> d; \
@@ -546,13 +547,12 @@ Q_DECLARE_METATYPE(GammaRay::ObjectView<Class>)
 template<> \
 class GammaRay::ObjectWrapper<Class> : public GammaRay::ObjectWrapper<BaseClass> \
 { \
-protected: \
+public: \
     /* We hide the base classes __data and __metadata functions on purpose and start counting at 0 again. */ \
     static std::tuple<> __data(ObjectWrapperPrivate *, __number<0>) { return {}; } \
     static void __metadata(__number<0>, MetaObject *) {} \
     static void __connectToUpdates(ObjectWrapperPrivate * d, __number<0>) { ObjectWrapper<BaseClass>::__connectToUpdates(d, __number<255>{}); } \
     \
-public: \
     using PropertyCache_t = PropertyCache<Class, BaseClass>; \
     \
     explicit ObjectWrapper<Class>(std::shared_ptr<ObjectWrapperPrivate> controlBlock) \
@@ -564,10 +564,11 @@ public: \
         return d->object<Class>(); \
     } \
  \
-    OBJECT_WRAPPER_COMMON(Class, __VA_ARGS__) \
- \
-private: \
     ObjectWrapperPrivate *d_ptr() const { return d.get(); } \
+    std::shared_ptr<ObjectWrapperPrivate> cloneD() const { return d; } \
+ \
+    OBJECT_WRAPPER_COMMON(Class, __VA_ARGS__) \
+private: \
 }; \
 Q_DECLARE_METATYPE(GammaRay::ObjectWrapper<Class>) \
 Q_DECLARE_METATYPE(GammaRay::ObjectHandle<Class>) \
@@ -613,8 +614,12 @@ class GammaRay::ObjectWrapper<Class> : public GammaRay::ObjectWrapper<BaseClass1
             \
             OBJECT_WRAPPER_COMMON(Class, __VA_ARGS__) \
  \
-private: \
+public: \
     ObjectWrapperPrivate *d_ptr() const { return ObjectWrapper<BaseClass1>::d.get(); } \
+    std::shared_ptr<ObjectWrapperPrivate> cloneD() const { return ObjectWrapper<BaseClass1>::d; } \
+    \
+    OBJECT_WRAPPER_COMMON(Class, __VA_ARGS__) \
+private: \
 }; \
 Q_DECLARE_METATYPE(GammaRay::ObjectWrapper<Class>) \
 Q_DECLARE_METATYPE(GammaRay::ObjectHandle<Class>) \
@@ -843,12 +848,21 @@ public:
     explicit operator T*() const;
 
     template<typename U>
-    operator ObjectHandle<U>()
+    operator ObjectHandle<U>() const
     {
         static_assert(std::is_base_of<U, T>::value, "Cannot cast ObjectHandle to type U: U is not a baseclass of T.");
         static_assert(isSpecialized<ObjectWrapper<T>>::value, "Cannot cast ObjectHandle to baseclass U: ObjectWrapper is not specialized on type U. Use DECLARE_OBJECT_WRAPPER to define a sepecialization.");
 
         return ObjectHandle <U> { static_cast<ObjectWrapper<U>>(m_d) };
+    }
+
+    template<typename U>
+    operator ObjectView<U>() const
+    {
+        static_assert(std::is_base_of<U, T>::value, "Cannot cast ObjectView to type U: U is not a baseclass of T.");
+        static_assert(isSpecialized<ObjectWrapper<T>>::value, "Cannot cast ObjectView to baseclass U: ObjectWrapper is not specialized on type U. Use DECLARE_OBJECT_WRAPPER to define a sepecialization.");
+
+        return ObjectView <U> { static_cast<ObjectWrapper<U>>(m_d).cloneD() };
     }
 
     inline const ObjectWrapper<T> *operator->() const;
@@ -877,6 +891,38 @@ public:
     explicit ObjectView() = default;
     explicit ObjectView(std::weak_ptr<ObjectWrapperPrivate> controlBlock);
     explicit operator bool() const;
+
+    template<typename U>
+    static auto castHelper(const ObjectView<T> &in) -> typename std::enable_if<std::is_base_of<T, U>::value, ObjectView<U>>::type {
+        return ObjectView <U> { static_cast<ObjectWrapper<U>>(in.d.lock()).cloneD() };
+    }
+
+    template<typename U>
+    static auto castHelper(const ObjectView<T> &in) -> typename std::enable_if<std::is_polymorphic<U>::value && std::is_base_of<U, T>::value, ObjectView<U>>::type {
+        if (!dynamic_cast<U*>(in.object())) {
+            return {};
+        }
+        return ObjectView <U> { static_cast<ObjectWrapper<U>>(in.d.lock()).cloneD() };
+    }
+
+    template<typename U>
+    operator ObjectView<U>() const
+    {
+        static_assert(std::is_base_of<T, U>::value || std::is_base_of<U, T>::value,
+                      "Cannot cast ObjectView from type T to type U: Neither is a baseclass of the other.");
+        static_assert(isSpecialized<ObjectWrapper<T>>::value, "Cannot cast ObjectView to baseclass U: ObjectWrapper is not specialized on type U. Use DECLARE_OBJECT_WRAPPER to define a sepecialization.");
+
+        return castHelper<U>(*this);
+    }
+    template<typename U>
+    operator ObjectHandle<U>() const
+    {
+        static_assert(std::is_base_of<U, T>::value, "Cannot cast ObjectView to type U: U is not a baseclass of T.");
+        static_assert(isSpecialized<ObjectWrapper<T>>::value, "Cannot cast ObjectView to baseclass U: ObjectWrapper is not specialized on type U. Use DECLARE_OBJECT_WRAPPER to define a sepecialization.");
+
+        return ObjectHandle <U> { static_cast<ObjectWrapper<U>>(d.lock()) };
+    }
+
 
     static ObjectView nullhandle();
 
