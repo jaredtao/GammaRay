@@ -139,12 +139,14 @@ template<int Flags, typename T = pimplClass_t<ThisClass_t>, typename std::enable
 static auto fetch_##FieldName(const value_type *object) \
 -> decltype(wrap<Flags>(std::declval<T>().FieldName())) \
 { \
+    static_assert(!std::is_same<T, void>::value, "Unknown Private Class: You need to add a PRIVATE_CLASS(...) macro to your wrapper definition."); /*FIXME can we make that assert actually effective instead of SFINAE?*/ \
     return wrap<Flags>(static_cast<const T*>(T::get(object))->FieldName()); \
 } \
 template<int Flags, typename T = pimplClass_t<ThisClass_t>, typename std::enable_if<(Flags & DptrMember) != 0 && (Flags & NonConst) == 0>::type* = nullptr> \
 static auto fetch_##FieldName(const value_type *object) \
 -> decltype(wrap<Flags>(std::declval<T>().FieldName)) \
 { \
+    static_assert(!std::is_same<T, void>::value, "Unknown Private Class: You need to add a PRIVATE_CLASS(...) macro to your wrapper definition."); /*FIXME can we make that assert actually effective instead of SFINAE?*/ \
     return wrap<Flags>(static_cast<const T*>(T::get(object))->FieldName); \
 } \
 \
@@ -165,7 +167,7 @@ static auto fetch_##FieldName( value_type *object) \
 \
 template<int Flags, typename T = value_type, typename std::enable_if<(Flags & Getter) != 0 && (Flags & NonConst) == 0>::type* = nullptr> \
 static auto fetch_##FieldName(const T *object) \
--> decltype(wrap<Flags>(std::declval<T>().FieldName())) \
+-> decltype(wrap<Flags>(std::declval<const T>().FieldName())) \
 { \
     return wrap<Flags>(object->FieldName()); \
 } \
@@ -177,7 +179,7 @@ static auto fetch_##FieldName(T *object) \
 } \
 template<int Flags, typename T = value_type, typename std::enable_if<(Flags & MemberVar) != 0>::type* = nullptr> \
 static auto fetch_##FieldName(const T *object) \
--> decltype(wrap<Flags>(std::declval<T>().FieldName)) \
+-> decltype(wrap<Flags>(std::declval<const T &>().FieldName)) \
 { \
     return wrap<Flags>(object->FieldName); \
 } \
@@ -350,7 +352,7 @@ static void __connectToUpdates(ObjectWrapperPrivate *d, __number<W_COUNTER_##Fie
 #define RO_PROP(FieldName, Flags) \
 DEFINE_COUNTER(W_COUNTER_##FieldName, __data) \
 DEFINE_FETCH_FUNCTION_PROP(FieldName) \
-DATA_APPEND(W_COUNTER_##FieldName, decltype(fetch_##FieldName<Flags>(static_cast<value_type*>(nullptr))), fetch_##FieldName<Flags>(d->object<value_type>())) \
+DATA_APPEND(W_COUNTER_##FieldName, typename std::decay<decltype(fetch_##FieldName<Flags>(static_cast<value_type*>(nullptr)))>::type, fetch_##FieldName<Flags>(d->object<value_type>())) \
 DEFINE_GETTER(FieldName, W_COUNTER_##FieldName - 1, Flags) \
 ADD_TO_METAOBJECT(FieldName, decltype(fetch_##FieldName<Flags>(static_cast<value_type*>(nullptr))), Flags) \
 CONNECT_TO_UPDATES(FieldName, Flags) \
@@ -395,7 +397,7 @@ CONNECT_TO_UPDATES(FieldName, Flags) \
 DEFINE_COUNTER(W_COUNTER_##FieldName, __data) \
 DEFINE_FETCH_FUNCTION_PROP(FieldName) \
 DEFINE_WRITE_FUNCTION_PROP(FieldName, SetterName) \
-DATA_APPEND(W_COUNTER_##FieldName, decltype(fetch_##FieldName<Flags>(static_cast<value_type*>(nullptr))), fetch_##FieldName<Flags>(d->object<value_type>())) \
+DATA_APPEND(W_COUNTER_##FieldName, typename std::decay<decltype(fetch_##FieldName<Flags>(static_cast<value_type*>(nullptr)))>::type, fetch_##FieldName<Flags>(d->object<value_type>())) \
 DEFINE_GETTER(FieldName, W_COUNTER_##FieldName - 1, Flags) \
 DEFINE_SETTER(FieldName, SetterName, W_COUNTER_##FieldName - 1, Flags) \
 ADD_TO_METAOBJECT(FieldName, decltype(fetch_##FieldName<Flags>(static_cast<value_type*>(nullptr))), Flags) \
@@ -435,7 +437,7 @@ CONNECT_TO_UPDATES(FieldName, Flags) \
 DEFINE_COUNTER(W_COUNTER_##FieldName, __data) \
 DEFINE_FETCH_FUNCTION_CUSTOM_EXPRESSION(FieldName, Expression) \
 DATA_APPEND(W_COUNTER_##FieldName, \
-decltype(fetch_##FieldName<Flags | CustomCommand>(static_cast<value_type*>(nullptr))), fetch_##FieldName<Flags | CustomCommand>(d->object<value_type>())) \
+typename std::decay<decltype(fetch_##FieldName<Flags | CustomCommand>(static_cast<value_type*>(nullptr)))>::type, fetch_##FieldName<Flags | CustomCommand>(d->object<value_type>())) \
 DEFINE_GETTER(FieldName, W_COUNTER_##FieldName - 1, Flags | CustomCommand) \
 ADD_TO_METAOBJECT(FieldName, decltype(fetch_##FieldName<Flags | CustomCommand>(static_cast<value_type*>(nullptr))), Flags | CustomCommand) \
 
@@ -744,7 +746,6 @@ struct PropertyCache final : PropertyCacheBase
         return std::get<I>(dataStorage);
     }
 
-//     explicit PropertyCache(Class *object, Data_t &&dataStorage);
 
     void update(ObjectWrapperPrivate *d)
     {
@@ -878,14 +879,17 @@ template<typename T> bool operator!=(const ObjectView<T> &lhs, const ObjectHandl
 template<typename T>
 class ObjectHandle
 {
-public:
+    public:
     using value_type = T;
 
     static_assert(isSpecialized<ObjectWrapper<T>>::value, "Can't create ObjectHandle: ObjectWrapper is not specialized on this type. Use DECLARE_OBJECT_WRAPPER to define a sepecialization.");
 
     explicit ObjectHandle(std::shared_ptr<ObjectWrapperPrivate> controlBlock);
     explicit ObjectHandle(ObjectWrapper<T> wrapper) : m_d(std::move(wrapper)) {}
-    explicit ObjectHandle() = default;
+    ObjectHandle() = default;
+
+
+
 
     explicit operator bool() const;
     explicit operator T*() const;
@@ -980,7 +984,7 @@ template<typename T>
 class ObjectView
 {
 public:
-    explicit ObjectView() = default;
+    ObjectView() = default;
     explicit ObjectView(std::weak_ptr<ObjectWrapperPrivate> controlBlock);
     explicit operator bool() const;
 
@@ -1482,7 +1486,7 @@ ObjectView<Class> ObjectShadowDataRepository::viewForObject(Class *obj)
 }
 
 template<int flags, typename T>
-auto wrap(T &&value) -> typename std::enable_if<!isSpecialized<ObjectWrapper<T>>::value, T>::type
+auto wrap(T &&value) -> typename std::enable_if<!isSpecialized<ObjectWrapper<typename std::decay<T>::type>>::value, T>::type
 {
     return std::forward<T>(value);
 }

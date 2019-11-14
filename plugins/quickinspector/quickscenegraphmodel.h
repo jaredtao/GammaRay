@@ -37,6 +37,8 @@
 #include <QPointer>
 #include <QVector>
 
+#include "scenegraphwrapper.h"
+
 QT_BEGIN_NAMESPACE
 class QSGNode;
 class QQuickItem;
@@ -44,6 +46,7 @@ class QQuickWindow;
 QT_END_NAMESPACE
 
 namespace GammaRay {
+
 /** QQ2 scene graph model. */
 class QuickSceneGraphModel : public ObjectModelBase<QAbstractItemModel>
 {
@@ -52,38 +55,40 @@ public:
     explicit QuickSceneGraphModel(QObject *parent = nullptr);
     ~QuickSceneGraphModel() override;
 
-    void setWindow(QQuickWindow *window);
+    void setWindow(ObjectHandle<QQuickWindow> window);
 
     QVariant data(const QModelIndex &index, int role) const override;
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QModelIndex parent(const QModelIndex &child) const override;
     QModelIndex index(int row, int column, const QModelIndex &parent) const override;
-    QModelIndex indexForNode(QSGNode *node) const;
-    QSGNode *sgNodeForItem(QQuickItem *item) const;
-    QQuickItem *itemForSgNode(QSGNode *node) const;
-    bool verifyNodeValidity(QSGNode *node);
+    QModelIndex indexForNode(ObjectView<QSGNode> node) const;
+    ObjectView<QSGNode> sgNodeForItem(ObjectView<QQuickItem> item) const;
+    ObjectView<QQuickItem> itemForSgNode(ObjectView<QSGNode> node) const;
+    bool verifyNodeValidity(ObjectView<QSGNode> node);
 
 signals:
-    void nodeDeleted(QSGNode *node);
+    void nodeDeleted(ObjectView<QSGNode> node);
 
 private slots:
     void updateSGTree(bool emitSignals = true);
 
 private:
     void clear();
-    QSGNode *currentRootNode() const;
-    void populateFromNode(QSGNode *node, bool emitSignals);
-    void collectItemNodes(QQuickItem *item);
-    bool recursivelyFindChild(QSGNode *root, QSGNode *child) const;
-    void pruneSubTree(QSGNode *node);
+    ObjectHandle<QSGNode> currentRootNode() const;
+    void populateFromNode(ObjectView<QSGNode> node, bool emitSignals);
+    void collectItemNodes(ObjectView<QQuickItem> item);
+    bool recursivelyFindChild(ObjectView<QSGNode> root, ObjectView<QSGNode> child) const;
+    void pruneSubTree(ObjectView<QSGNode> node);
 
-    QPointer<QQuickWindow> m_window;
+    ObjectView<QSGNode> nodeForIndex(const QModelIndex &index) const;
 
-    QSGNode *m_rootNode;
-    QHash<QSGNode *, QSGNode *> m_childParentMap;
-    QHash<QSGNode *, QVector<QSGNode *> > m_parentChildMap;
-    QHash<QQuickItem *, QSGNode *> m_itemItemNodeMap;
-    QHash<QSGNode *, QQuickItem *> m_itemNodeItemMap;
+    ObjectHandle<QQuickWindow> m_window;
+
+    ObjectHandle<QSGNode> m_rootNode;
+    QHash<ObjectView<QSGNode>, ObjectView<QSGNode>> m_childParentMap;
+    QHash<ObjectView<QSGNode>, QVector<ObjectView<QSGNode>> > m_parentChildMap;
+    QHash<ObjectView<QQuickItem> , ObjectView<QSGNode> > m_itemItemNodeMap;
+    QHash<ObjectView<QSGNode> , ObjectView<QQuickItem> > m_itemNodeItemMap;
 };
 }
 

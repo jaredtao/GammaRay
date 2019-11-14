@@ -37,7 +37,7 @@
 
 #include <algorithm>
 
-Q_DECLARE_METATYPE(QSGNode *)
+// Q_DECLARE_METATYPE(ObjectView<QSGNode> )
 
 using namespace GammaRay;
 
@@ -49,17 +49,17 @@ QuickSceneGraphModel::QuickSceneGraphModel(QObject *parent)
 
 QuickSceneGraphModel::~QuickSceneGraphModel() = default;
 
-void QuickSceneGraphModel::setWindow(QQuickWindow *window)
+void QuickSceneGraphModel::setWindow(ObjectHandle<QQuickWindow> window)
 {
     beginResetModel();
     clear();
     if (m_window)
-        disconnect(m_window.data(), &QQuickWindow::afterRendering, this, nullptr);
-    m_window = window;
+        disconnect(m_window.object(), &QQuickWindow::afterRendering, this, nullptr);
+    m_window = std::move(window);
     m_rootNode = currentRootNode();
     if (m_window && m_rootNode) {
         updateSGTree(false);
-        connect(m_window.data(), &QQuickWindow::afterRendering, this, [this]{ updateSGTree(); });
+        connect(m_window.object(), &QQuickWindow::afterRendering, this, [this]{ updateSGTree(); });
     }
 
     endResetModel();
@@ -76,25 +76,26 @@ void QuickSceneGraphModel::updateSGTree(bool emitSignals)
             updateSGTree(false);
         endResetModel();
     } else {
-        m_childParentMap[m_rootNode] = nullptr;
-        m_parentChildMap[nullptr].resize(1);
-        m_parentChildMap[nullptr][0] = m_rootNode;
+        m_childParentMap[m_rootNode].clear();
+        m_parentChildMap[{}].resize(1);
+        m_parentChildMap[{}][0] = m_rootNode;
 
         populateFromNode(m_rootNode, emitSignals);
         collectItemNodes(m_window->contentItem());
     }
 }
 
-QSGNode *QuickSceneGraphModel::currentRootNode() const
+ObjectHandle<QSGNode> QuickSceneGraphModel::currentRootNode() const
 {
     if (!m_window)
-        return nullptr;
+        return {};
 
-    QQuickItem *item = m_window->contentItem();
-    QQuickItemPrivate *itemPriv = QQuickItemPrivate::get(item);
-    QSGNode *root = itemPriv->itemNode();
+    ObjectHandle<QQuickItem> item = m_window->contentItem();
+//     QQuickItemPrivate *itemPriv = QQuickItemPrivate::get(item);
+//     auto root = itemPriv->itemNode();
+    ObjectHandle<QSGNode> root = item->itemNodeInstance();
     while (root->parent()) // Ensure that we really get the very root node.
-        root = root->parent();
+        root = ObjectHandle<QSGNode> { root->parent() };
     return root;
 }
 
@@ -103,11 +104,11 @@ QVariant QuickSceneGraphModel::data(const QModelIndex &index, int role) const
     if (!index.isValid())
         return QVariant();
 
-    QSGNode *node = reinterpret_cast<QSGNode *>(index.internalPointer());
+    auto node = nodeForIndex(index);
 
     if (role == Qt::DisplayRole) {
         if (index.column() == 0) {
-            return Util::addressToString(node);
+            return Util::addressToString(node.object());
         } else if (index.column() == 1) {
             switch (node->type()) {
             case QSGNode::BasicNodeType:
@@ -138,25 +139,25 @@ int QuickSceneGraphModel::rowCount(const QModelIndex &parent) const
     if (parent.column() == 1)
         return 0;
 
-    QSGNode *parentNode = reinterpret_cast<QSGNode *>(parent.internalPointer());
+    auto parentNode = nodeForIndex(parent);
     return m_parentChildMap.value(parentNode).size();
 }
 
 QModelIndex QuickSceneGraphModel::parent(const QModelIndex &child) const
 {
-    QSGNode *childNode = reinterpret_cast<QSGNode *>(child.internalPointer());
+    auto childNode = nodeForIndex(child);
     return indexForNode(m_childParentMap.value(childNode));
 }
 
 QModelIndex QuickSceneGraphModel::index(int row, int column, const QModelIndex &parent) const
 {
-    QSGNode *parentNode = reinterpret_cast<QSGNode *>(parent.internalPointer());
-    const QVector<QSGNode *> children = m_parentChildMap.value(parentNode);
+    auto parentNode = nodeForIndex(parent);
+    const auto children = m_parentChildMap.value(parentNode);
 
     if (row < 0 || column < 0 || row >= children.size() || column >= columnCount())
         return {};
 
-    return createIndex(row, column, children.at(row));
+    return createIndex(row, column, children.at(row).object());
 }
 
 void QuickSceneGraphModel::clear()
@@ -169,16 +170,16 @@ void QuickSceneGraphModel::clear()
 #define GET_INDEX if (emitSignals && !hasMyIndex) { myIndex = indexForNode(node); hasMyIndex = true; \
 }
 
-void QuickSceneGraphModel::populateFromNode(QSGNode *node, bool emitSignals)
+void QuickSceneGraphModel::populateFromNode(ObjectView<QSGNode> node, bool emitSignals)
 {
     if (!node)
         return;
 
-    QVector<QSGNode *> &childList = m_parentChildMap[node];
-    QVector<QSGNode *> newChildList;
+    QVector<ObjectView<QSGNode> > &childList = m_parentChildMap[node];
+    QVector<ObjectView<QSGNode> > newChildList;
 
     newChildList.reserve(node->childCount());
-    for (QSGNode *childNode = node->firstChild(); childNode; childNode = childNode->nextSibling())
+    for (ObjectView<QSGNode> childNode = node->firstChild(); childNode; childNode = childNode->nextSibling())
         newChildList.append(childNode);
 
     QModelIndex myIndex; // don't call indexForNode(node) here yet, in the common case of few changes we waste a lot of time here
@@ -190,7 +191,7 @@ void QuickSceneGraphModel::populateFromNode(QSGNode *node, bool emitSignals)
     auto j = newChildList.constBegin();
 
     while (i != childList.end() && j != newChildList.constEnd()) {
-        if (*i < *j) { // handle deleted node
+        if (i->object() < j->object()) { // handle deleted node
             emit nodeDeleted(*i);
             GET_INDEX
             if (emitSignals) {
@@ -201,7 +202,7 @@ void QuickSceneGraphModel::populateFromNode(QSGNode *node, bool emitSignals)
             i = childList.erase(i);
             if (emitSignals)
                 endRemoveRows();
-        } else if (*i > *j) { // handle added node
+        } else if (i->object() > j->object()) { // handle added node
             GET_INDEX
             const auto idx = std::distance(childList.begin(), i);
             if (m_childParentMap.contains(*j)) { // move from elsewhere in our tree
@@ -333,45 +334,45 @@ void QuickSceneGraphModel::populateFromNode(QSGNode *node, bool emitSignals)
 
 #undef GET_INDEX
 
-void QuickSceneGraphModel::collectItemNodes(QQuickItem *item)
+void QuickSceneGraphModel::collectItemNodes(ObjectView<QQuickItem> item)
 {
     if (!item)
         return;
 
-    QQuickItemPrivate *priv = QQuickItemPrivate::get(item);
-    if (!priv->itemNodeInstance) // Explicitly avoid calling priv->itemNode() here, which would create a new node outside the scenegraph's behavior.
+//     QQuickItemPrivate *priv = QQuickItemPrivate::get(item);
+    if (!item->itemNodeInstance()) // Explicitly avoid calling priv->itemNode() here, which would create a new node outside the scenegraph's behavior.
         return;
 
-    QSGNode *itemNode = priv->itemNodeInstance;
+    ObjectView<QSGNode> itemNode { item->itemNodeInstance() };
     m_itemItemNodeMap[item] = itemNode;
     m_itemNodeItemMap[itemNode] = item;
 
-    foreach (QQuickItem *child, item->childItems())
+    foreach (ObjectView<QQuickItem> child, item->childItems())
         collectItemNodes(child);
 }
 
-QModelIndex QuickSceneGraphModel::indexForNode(QSGNode *node) const
+QModelIndex QuickSceneGraphModel::indexForNode(ObjectView<QSGNode> node) const
 {
     if (!node)
         return {};
 
-    QSGNode *parent = m_childParentMap.value(node);
+    ObjectView<QSGNode> parent = m_childParentMap.value(node);
 
-    const QVector<QSGNode *> &siblings = m_parentChildMap[parent];
+    const QVector<ObjectView<QSGNode> > &siblings = m_parentChildMap[parent];
     auto it = std::lower_bound(siblings.constBegin(), siblings.constEnd(), node);
     if (it == siblings.constEnd() || *it != node)
         return QModelIndex();
 
     const int row = std::distance(siblings.constBegin(), it);
-    return createIndex(row, 0, node);
+    return createIndex(row, 0, node.object());
 }
 
-QSGNode *QuickSceneGraphModel::sgNodeForItem(QQuickItem *item) const
+ObjectView<QSGNode> QuickSceneGraphModel::sgNodeForItem(ObjectView<QQuickItem> item) const
 {
     return m_itemItemNodeMap[item];
 }
 
-QQuickItem *QuickSceneGraphModel::itemForSgNode(QSGNode *node) const
+ObjectView<QQuickItem> QuickSceneGraphModel::itemForSgNode(ObjectView<QSGNode> node) const
 {
     while (node && !m_itemNodeItemMap.contains(node)) {
         // If there's no entry for node, take its parent
@@ -380,13 +381,13 @@ QQuickItem *QuickSceneGraphModel::itemForSgNode(QSGNode *node) const
     return m_itemNodeItemMap[node];
 }
 
-bool QuickSceneGraphModel::verifyNodeValidity(QSGNode *node)
+bool QuickSceneGraphModel::verifyNodeValidity(ObjectView<QSGNode> node)
 {
     if (node == m_rootNode)
         return true;
 
-    QQuickItem *item = itemForSgNode(node);
-    QSGNode *itemNode = QQuickItemPrivate::get(item)->itemNode();
+    ObjectView<QQuickItem> item = itemForSgNode(node);
+    ObjectView<QSGNode> itemNode { item->itemNodeInstance() };
     bool valid = itemNode == node || recursivelyFindChild(itemNode, node);
     if (!valid) {
         // The tree got dirty without us noticing. Expecting more to be invalid,
@@ -396,19 +397,25 @@ bool QuickSceneGraphModel::verifyNodeValidity(QSGNode *node)
     return valid;
 }
 
-bool QuickSceneGraphModel::recursivelyFindChild(QSGNode *root, QSGNode *child) const
+bool QuickSceneGraphModel::recursivelyFindChild(ObjectView<QSGNode> root, ObjectView<QSGNode> child) const
 {
-    for (QSGNode *childNode = root->firstChild(); childNode; childNode = childNode->nextSibling()) {
+    for (ObjectView<QSGNode> childNode = root->firstChild(); childNode; childNode = childNode->nextSibling()) {
         if (childNode == child || recursivelyFindChild(childNode, child))
             return true;
     }
     return false;
 }
 
-void QuickSceneGraphModel::pruneSubTree(QSGNode *node)
+void QuickSceneGraphModel::pruneSubTree(ObjectView<QSGNode> node)
 {
     foreach (auto child, m_parentChildMap.value(node))
         pruneSubTree(child);
     m_parentChildMap.remove(node);
     m_childParentMap.remove(node);
 }
+
+ObjectView<QSGNode> QuickSceneGraphModel::nodeForIndex(const QModelIndex& index) const
+{
+    return ObjectShadowDataRepository::viewForObject(reinterpret_cast<QSGNode*>(index.internalPointer()));
+}
+

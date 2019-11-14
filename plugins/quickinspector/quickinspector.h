@@ -39,6 +39,8 @@
 #include <QMutex>
 #include <memory>
 
+#include "scenegraphwrapper.h"
+
 QT_BEGIN_NAMESPACE
 class QQuickShaderEffectSource;
 class QAbstractItemModel;
@@ -73,7 +75,7 @@ public:
     explicit RenderModeRequest(QObject *parent = nullptr);
     ~RenderModeRequest() override;
 
-    void applyOrDelay(QQuickWindow *toWindow, QuickInspectorInterface::RenderMode customRenderMode);
+    void applyOrDelay(ObjectView<QQuickWindow> toWindow, QuickInspectorInterface::RenderMode customRenderMode);
 
 signals:
     void aboutToCleanSceneGraph();
@@ -89,7 +91,7 @@ private:
 
     QuickInspectorInterface::RenderMode mode;
     QMetaObject::Connection connection;
-    QPointer<QQuickWindow> window;
+    ObjectView<QQuickWindow> window;
 };
 
 class QuickInspector : public QuickInspectorInterface
@@ -133,7 +135,7 @@ private slots:
     void slotGrabWindow();
     void itemSelectionChanged(const QItemSelection &selection);
     void sgSelectionChanged(const QItemSelection &selection);
-    void sgNodeDeleted(QSGNode *node);
+    void sgNodeDeleted(ObjectView<QSGNode> node);
     void qObjectSelected(QObject *object);
     void nonQObjectSelected(void *object, const QString &typeName);
     void objectCreated(QObject *object);
@@ -142,23 +144,23 @@ private slots:
     void sceneGraphCleanedUp();
 
 private:
-    void selectWindow(QQuickWindow *window);
-    void selectItem(QQuickItem *item);
-    void selectSGNode(QSGNode *node);
+    void selectWindow(ObjectHandle<QQuickWindow> window);
+    void selectItem(ObjectHandle<QQuickItem> item);
+    void selectSGNode(ObjectHandle<QSGNode> node);
     void registerMetaTypes();
     void registerVariantHandlers();
     void registerPCExtensions();
-    QString findSGNodeType(QSGNode *node) const;
+    QString findSGNodeType(ObjectView<QSGNode> node) const;
     static void scanForProblems();
 
-    GammaRay::ObjectIds recursiveItemsAt(QQuickItem *parent, const QPointF &pos,
+    GammaRay::ObjectIds recursiveItemsAt(ObjectView<QQuickItem> parent, const QPointF &pos,
                                          GammaRay::RemoteViewInterface::RequestMode mode, int& bestCandidate) const;
 
     Probe *m_probe;
     std::unique_ptr<AbstractScreenGrabber> m_overlay;
-    QPointer<QQuickWindow> m_window;
-    QPointer<QQuickItem> m_currentItem;
-    QSGNode *m_currentSgNode;
+    ObjectHandle<QQuickWindow> m_window;
+    ObjectHandle<QQuickItem> m_currentItem;
+    ObjectHandle<QSGNode> m_currentSgNode;
     QAbstractItemModel *m_windowModel;
     QuickItemModel *m_itemModel;
     QItemSelectionModel *m_itemSelectionModel;

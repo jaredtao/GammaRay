@@ -113,44 +113,6 @@
 #include <private/qsgdistancefieldglyphnode_p_p.h>
 #include <private/qabstractanimation_p.h>
 
-Q_DECLARE_METATYPE(QQmlError)
-
-Q_DECLARE_METATYPE(QQuickItem::Flags)
-Q_DECLARE_METATYPE(QQuickPaintedItem::PerformanceHints)
-Q_DECLARE_METATYPE(QSGNode *)
-Q_DECLARE_METATYPE(QSGBasicGeometryNode *)
-Q_DECLARE_METATYPE(QSGGeometryNode *)
-Q_DECLARE_METATYPE(QSGClipNode *)
-Q_DECLARE_METATYPE(QSGTransformNode *)
-Q_DECLARE_METATYPE(QSGRootNode *)
-Q_DECLARE_METATYPE(QSGOpacityNode *)
-Q_DECLARE_METATYPE(QSGNode::Flags)
-Q_DECLARE_METATYPE(QSGNode::DirtyState)
-Q_DECLARE_METATYPE(QSGGeometry *)
-Q_DECLARE_METATYPE(QMatrix4x4 *)
-Q_DECLARE_METATYPE(const QMatrix4x4 *)
-Q_DECLARE_METATYPE(const QSGClipNode *)
-Q_DECLARE_METATYPE(const QSGGeometry *)
-Q_DECLARE_METATYPE(QSGMaterial *)
-Q_DECLARE_METATYPE(QSGMaterial::Flags)
-Q_DECLARE_METATYPE(QSGTexture::WrapMode)
-Q_DECLARE_METATYPE(QSGTexture::Filtering)
-#if QT_VERSION >= QT_VERSION_CHECK(5, 9, 0)
-Q_DECLARE_METATYPE(QSGTexture::AnisotropyLevel)
-#endif
-#if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
-Q_DECLARE_METATYPE(QSGRenderNode *)
-Q_DECLARE_METATYPE(QSGRenderNode::RenderingFlags)
-Q_DECLARE_METATYPE(QSGRenderNode::StateFlags)
-#endif
-#if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
-Q_DECLARE_METATYPE(QSGRendererInterface*)
-Q_DECLARE_METATYPE(QSGRendererInterface::GraphicsApi)
-Q_DECLARE_METATYPE(QSGRendererInterface::ShaderCompilationTypes)
-Q_DECLARE_METATYPE(QSGRendererInterface::ShaderSourceTypes)
-Q_DECLARE_METATYPE(QSGRendererInterface::ShaderType)
-#endif
-
 using namespace GammaRay;
 
 #define E(x) { QQuickItem:: x, #x }
@@ -239,7 +201,7 @@ static const MetaEnum::Value<QSGTexture::WrapMode> qsg_texture_wrapmode_table[] 
 
 #undef E
 
-static bool isGoodCandidateItem(QQuickItem *item)
+static bool isGoodCandidateItem(ObjectView<QQuickItem> item)
 {
 
     if (!item->isVisible() || qFuzzyCompare(item->opacity() + qreal(1.0), qreal(1.0)) ||
@@ -286,7 +248,7 @@ RenderModeRequest::~RenderModeRequest()
         disconnect(connection);
 }
 
-void RenderModeRequest::applyOrDelay(QQuickWindow *toWindow, QuickInspectorInterface::RenderMode customRenderMode)
+void RenderModeRequest::applyOrDelay(ObjectView<QQuickWindow> toWindow, QuickInspectorInterface::RenderMode customRenderMode)
 {
     if (toWindow) {
         QMutexLocker lock(&mutex);
@@ -304,7 +266,7 @@ void RenderModeRequest::applyOrDelay(QQuickWindow *toWindow, QuickInspectorInter
             window = toWindow;
             connection = connect(window.data(), &QQuickWindow::afterRendering, this, &RenderModeRequest::apply, Qt::DirectConnection);
             // trigger window update so afterRendering is emitted
-            QMetaObject::invokeMethod(window, "update", Qt::QueuedConnection);
+            QMetaObject::invokeMethod(window.object(), "update", Qt::QueuedConnection); // FIXME expose this as a method of the object handle
         }
     }
 }
@@ -324,10 +286,10 @@ void RenderModeRequest::apply()
     if (window) {
         emit aboutToCleanSceneGraph();
         const QByteArray mode = renderModeToString(RenderModeRequest::mode);
-        QQuickWindowPrivate *winPriv = QQuickWindowPrivate::get(window);
-        QMetaObject::invokeMethod(window, "cleanupSceneGraph", Qt::DirectConnection);
-        winPriv->customRenderMode = mode;
+        QMetaObject::invokeMethod(window.object(), "cleanupSceneGraph", Qt::DirectConnection);
+        window->setCustomRenderMode(mode);
         emit sceneGraphCleanedUp();
+        // FIXME expose cleanupSceneGraph as method and customRenderMode as property of the wrapper
     }
 
     QMetaObject::invokeMethod(this, "preFinished", Qt::QueuedConnection);
@@ -434,29 +396,29 @@ void QuickInspector::selectWindow(int index)
 {
     const QModelIndex mi = m_windowModel->index(index, 0);
     QQuickWindow *window = mi.data(ObjectModel::ObjectRole).value<QQuickWindow *>();
-    selectWindow(window);
+    selectWindow(ObjectShadowDataRepository::handleForObject(window));
 }
 
-void QuickInspector::selectWindow(QQuickWindow *window)
+void QuickInspector::selectWindow(ObjectHandle<QQuickWindow> window)
 {
     if (m_window == window) {
         return;
     }
 
     if (m_window) {
-        const QByteArray mode = QQuickWindowPrivate::get(m_window)->customRenderMode;
+        const QByteArray mode = m_window->customRenderMode();
 
         if (!mode.isEmpty()) {
-            auto reset = new RenderModeRequest(m_window);
+            auto reset = new RenderModeRequest(m_window.object()); // FIXME is this good parenting? I don't think so...
             connect(reset, &RenderModeRequest::finished, reset, &RenderModeRequest::deleteLater);
             reset->applyOrDelay(m_window, QuickInspectorInterface::NormalRendering);
         }
     }
 
-    m_window = window;
-    m_itemModel->setWindow(window);
-    m_sgModel->setWindow(window);
-    m_remoteView->setEventReceiver(m_window);
+    m_window = std::move(window);
+    m_itemModel->setWindow(m_window.object());
+    m_sgModel->setWindow(m_window);
+    m_remoteView->setEventReceiver(m_window.object());
     m_remoteView->resetView();
     recreateOverlay();
 
@@ -472,7 +434,7 @@ void QuickInspector::selectWindow(QQuickWindow *window)
         setCustomRenderMode(m_renderMode);
 }
 
-void QuickInspector::selectItem(QQuickItem *item)
+void QuickInspector::selectItem(ObjectHandle<QQuickItem> item)
 {
     const QAbstractItemModel *model = m_itemSelectionModel->model();
     Model::used(model);
@@ -481,7 +443,7 @@ void QuickInspector::selectItem(QQuickItem *item)
     const QModelIndexList indexList
         = model->match(model->index(0, 0),
                        ObjectModel::ObjectRole,
-                       QVariant::fromValue<QQuickItem *>(item), 1,
+                       QVariant::fromValue<ObjectView<QQuickItem> >(item), 1,
                        Qt::MatchExactly | Qt::MatchRecursive | Qt::MatchWrap);
     if (indexList.isEmpty())
         return;
@@ -494,7 +456,7 @@ void QuickInspector::selectItem(QQuickItem *item)
                                  |QItemSelectionModel::Current);
 }
 
-void QuickInspector::selectSGNode(QSGNode *node)
+void QuickInspector::selectSGNode(ObjectHandle<QSGNode> node)
 {
     const QAbstractItemModel *model = m_sgSelectionModel->model();
     Model::used(model);
@@ -518,26 +480,26 @@ void QuickInspector::selectSGNode(QSGNode *node)
 void QuickInspector::qObjectSelected(QObject *object)
 {
     if (auto item = qobject_cast<QQuickItem *>(object))
-        selectItem(item);
+        selectItem(ObjectShadowDataRepository::handleForObject(item));
     else if (auto window = qobject_cast<QQuickWindow *>(object))
-        selectWindow(window);
+        selectWindow(ObjectShadowDataRepository::handleForObject(window));
 }
 
 void QuickInspector::nonQObjectSelected(void *object, const QString &typeName)
 {
     auto metaObject = MetaObjectRepository::instance()->metaObject(typeName);
     if (metaObject && metaObject->inherits(QStringLiteral("QSGNode")))
-        selectSGNode(reinterpret_cast<QSGNode *>(object));
+        selectSGNode(ObjectShadowDataRepository::handleForObject(reinterpret_cast<QSGNode *>(object)));
 }
 
 void QuickInspector::objectCreated(QObject *object)
 {
-    if (QQuickWindow *window = qobject_cast<QQuickWindow *>(object)) {
+    if (auto window = qobject_cast<QQuickWindow *>(object)) {
         if (QQuickView *view = qobject_cast<QQuickView *>(object)) {
             m_probe->discoverObject(view->engine());
         }
         else {
-            QQmlContext *context = QQmlEngine::contextForObject(window);
+            QQmlContext *context = QQmlEngine::contextForObject(window); // FIXME this should be a property.
             QQmlEngine *engine = context ? context->engine() : nullptr;
 
             if (!engine) {
@@ -555,7 +517,7 @@ void QuickInspector::recreateOverlay()
     if (m_overlay)
         disconnect(m_overlay.get(), &QObject::destroyed, this, &QuickInspector::recreateOverlay);
 
-    m_overlay = AbstractScreenGrabber::get(m_window);
+    m_overlay = AbstractScreenGrabber::get(m_window.object());
 
     connect(m_overlay.get(), &AbstractScreenGrabber::grabberReadyChanged, m_remoteView, &RemoteViewServer::setGrabberReady);
     connect(m_overlay.get(), &AbstractScreenGrabber::sceneChanged, m_remoteView, &RemoteViewServer::sourceChanged);
@@ -573,8 +535,8 @@ void QuickInspector::recreateOverlay()
 
 void QuickInspector::aboutToCleanSceneGraph()
 {
-    m_sgModel->setWindow(nullptr);
-    m_currentSgNode = nullptr;
+    m_sgModel->setWindow({});
+    m_currentSgNode.clear();
     m_sgPropertyController->setObject(nullptr, QString());
 }
 
@@ -671,6 +633,8 @@ public:
 };
 #endif
 
+
+// TODO How to get private API access from here to scenegraphwrapper?
 void QuickInspector::analyzePainting()
 {
 #if QT_VERSION >= QT_VERSION_CHECK(5, 9, 3)
@@ -680,7 +644,7 @@ void QuickInspector::analyzePainting()
     m_paintAnalyzer->beginAnalyzePainting();
     m_paintAnalyzer->setBoundingRect(QRect(QPoint(), m_window->size()));
     {
-        auto w = QQuickWindowPrivate::get(m_window);
+        auto w = QQuickWindowPrivate::get(m_window.object());
         auto renderer = static_cast<SGSoftwareRendererPrivacyViolater*>(w->renderer);
 
         // this replicates what QSGSoftwareRender is doing
@@ -703,8 +667,9 @@ void QuickInspector::analyzePainting()
 
         for (; iterator != renderer->renderableNodes().end(); ++iterator) {
             auto node = *iterator;
-            QQuickItem *origin = m_sgModel->itemForSgNode(node->handle());
-            m_paintAnalyzer->setOrigin(ObjectId(origin));
+            auto handle = ObjectShadowDataRepository::handleForObject(node->handle());
+            ObjectView<QQuickItem> origin = m_sgModel->itemForSgNode(handle);
+            m_paintAnalyzer->setOrigin(origin.objectId());
             node->renderNode(&painter);
         }
 #endif
@@ -726,17 +691,17 @@ void QuickInspector::setSlowMode(bool slow)
     if (m_slowDownEnabled == slow)
         return;
 
-    static QHash<QQuickWindow *, QMetaObject::Connection> connections;
+    static QHash<ObjectView<QQuickWindow> , QMetaObject::Connection> connections;
 
     m_slowDownEnabled = slow;
 
     for (int i = 0; i < m_windowModel->rowCount(); ++i) {
         const QModelIndex index = m_windowModel->index(i, 0);
-        QQuickWindow *window = index.data(ObjectModel::ObjectRole).value<QQuickWindow *>();
+        ObjectView<QQuickWindow> window = index.data(ObjectModel::ObjectRole).value<ObjectView<QQuickWindow> >();
         auto it = connections.find(window);
 
         if (it == connections.end()) {
-            connections.insert(window, connect(window, &QQuickWindow::beforeRendering, this, [this, window]() {
+            connections.insert(window, connect(window.object(), &QQuickWindow::beforeRendering, this, [this, window]() {
                 auto it = connections.find(window);
                 QUnifiedTimer::instance()->setSlowModeEnabled(m_slowDownEnabled);
                 QObject::disconnect(it.value());
@@ -751,8 +716,8 @@ void QuickInspector::setSlowMode(bool slow)
 void QuickInspector::itemSelectionChanged(const QItemSelection &selection)
 {
     const QModelIndex index = selection.value(0).topLeft();
-    m_currentItem = index.data(ObjectModel::ObjectRole).value<QQuickItem *>();
-    m_itemPropertyController->setObject(m_currentItem);
+    m_currentItem = index.data(ObjectModel::ObjectRole).value<ObjectView<QQuickItem> >();
+    m_itemPropertyController->setObject(m_currentItem.object());
 
     // It might be that a sg-node is already selected that belongs to this item, but isn't the root
     // node of the Item. In this case we don't want to overwrite that selection.
@@ -777,19 +742,20 @@ void QuickInspector::sgSelectionChanged(const QItemSelection &selection)
         return;
 
     const QModelIndex index = selection.first().topLeft();
-    m_currentSgNode = index.data(ObjectModel::ObjectRole).value<QSGNode *>();
+    m_currentSgNode = index.data(ObjectModel::ObjectRole).value<ObjectView<QSGNode> >();
     if (!m_sgModel->verifyNodeValidity(m_currentSgNode))
         return; // Apparently the node has been deleted meanwhile, so don't access it.
 
-    void *obj = m_currentSgNode;
+    void *obj = m_currentSgNode.object();
     auto mo = MetaObjectRepository::instance()->metaObject(QStringLiteral("QSGNode"), obj);
-    m_sgPropertyController->setObject(m_currentSgNode, mo->className());
+//     auto mo = m_currentSgNode->staticMetaObject(); // FIXME does this work? Is metaObject virtual?
+    m_sgPropertyController->setObject(m_currentSgNode.object(), mo->className());
 
     m_currentItem = m_sgModel->itemForSgNode(m_currentSgNode);
     selectItem(m_currentItem);
 }
 
-void QuickInspector::sgNodeDeleted(QSGNode *node)
+void QuickInspector::sgNodeDeleted(ObjectView<QSGNode> node)
 {
     if (m_currentSgNode == node)
         m_sgPropertyController->setObject(nullptr, QString());
@@ -810,12 +776,12 @@ void QuickInspector::requestElementsAt(const QPoint &pos, GammaRay::RemoteViewIn
 
 void QuickInspector::pickElementId(const GammaRay::ObjectId &id)
 {
-    QQuickItem *item = id.asQObjectType<QQuickItem *>();
+    auto item = id.asQObjectType<QQuickItem *>();
     if (item)
         m_probe->selectObject(item);
 }
 
-ObjectIds QuickInspector::recursiveItemsAt(QQuickItem *parent, const QPointF &pos,
+ObjectIds QuickInspector::recursiveItemsAt(ObjectView<QQuickItem> parent, const QPointF &pos,
                                            GammaRay::RemoteViewInterface::RequestMode mode, int &bestCandidate) const
 {
     Q_ASSERT(parent);
@@ -825,7 +791,7 @@ ObjectIds QuickInspector::recursiveItemsAt(QQuickItem *parent, const QPointF &po
 
     auto childItems = parent->childItems();
     std::stable_sort(childItems.begin(), childItems.end(),
-                     [](QQuickItem *lhs, QQuickItem *rhs){return lhs->z() < rhs->z();}
+                     [](ObjectView<QQuickItem> lhs, ObjectView<QQuickItem> rhs){return lhs->z() < rhs->z();}
     );
 
     for (int i = childItems.size() - 1; i >= 0; --i) { // backwards to match z order
@@ -845,7 +811,7 @@ ObjectIds QuickInspector::recursiveItemsAt(QQuickItem *parent, const QPointF &po
             if (bestCandidate == -1 && isGoodCandidateItem(child)) {
                 bestCandidate = objects.count();
             }
-            objects << ObjectId(child);
+            objects << child.objectId();
         }
 
         if (bestCandidate != -1 && mode == RemoteViewInterface::RequestBest) {
@@ -857,7 +823,7 @@ ObjectIds QuickInspector::recursiveItemsAt(QQuickItem *parent, const QPointF &po
         bestCandidate = objects.count();
     }
 
-    objects << ObjectId(parent);
+    objects << parent.objectId();
 
     if (bestCandidate != -1 && mode == RemoteViewInterface::RequestBest) {
         objects = ObjectIds() << objects[bestCandidate];
@@ -874,28 +840,28 @@ void QuickInspector::scanForProblems()
 
     QMutexLocker lock(Probe::objectLock());
     for (QObject *obj : allObjects) {
-        QQuickItem *item;
-        if (!Probe::instance()->isValidObject(obj) || !(item = qobject_cast<QQuickItem*>(obj)))
+        ObjectView<QQuickItem> item = ObjectShadowDataRepository::viewForObject(obj);
+        if (!item)
             continue;
 
-        QQuickItem *ancestor = item->parentItem();
+        ObjectView<QQuickItem> ancestor = item->parentItem();
         auto rect = item->mapRectToScene(QRectF(0, 0, item->width(), item->height()));
 
-        while (ancestor && item->window() && ancestor != item->window()->contentItem()) {
-            if (ancestor->parentItem() == item->window()->contentItem() || ancestor->clip()) {
+        while (ancestor && windowForItem(item) && ancestor != windowForItem(item)->contentItem()) {
+            if (ancestor->parentItem() == windowForItem(item)->contentItem() || ancestor->clip()) {
                 auto ancestorRect = ancestor->mapRectToScene(QRectF(0, 0, ancestor->width(), ancestor->height()));
 
                 if (!ancestorRect.contains(rect) && !rect.intersects(ancestorRect)) {
                     Problem p;
                     p.severity = Problem::Info;
                     p.description = QStringLiteral("QtQuick: %1 %2 (0x%3) is visible, but out of view.").arg(
-                        ObjectDataProvider::typeName(item),
-                        ObjectDataProvider::name(item),
-                        QString::number(reinterpret_cast<quintptr>(item), 16)
+                        ObjectDataProvider::typeName(item.object()),
+                        ObjectDataProvider::name(item.object()),
+                        QString::number(reinterpret_cast<quintptr>(item.object()), 16)
                     );
-                    p.object = ObjectId(item);
-                    p.locations.push_back(ObjectDataProvider::creationLocation(item));
-                    p.problemId = QStringLiteral("com.kdab.GammaRay.QuickItemChecker.OutOfView:%1").arg(reinterpret_cast<quintptr>(item));
+                    p.object = item.objectId();
+                    p.locations.push_back(ObjectDataProvider::creationLocation(item.object()));
+                    p.problemId = QStringLiteral("com.kdab.GammaRay.QuickItemChecker.OutOfView:%1").arg(reinterpret_cast<quintptr>(item.object()));
                     p.findingCategory = Problem::Scan;
                     ProblemCollector::addProblem(p);
                     break;
@@ -912,7 +878,7 @@ bool QuickInspector::eventFilter(QObject *receiver, QEvent *event)
         QMouseEvent *mouseEv = static_cast<QMouseEvent*>(event);
         if (mouseEv->button() == Qt::LeftButton &&
                 mouseEv->modifiers() == (Qt::ControlModifier | Qt::ShiftModifier)) {
-            QQuickWindow *window = qobject_cast<QQuickWindow*>(receiver);
+            ObjectView<QQuickWindow> window = ObjectShadowDataRepository::viewForObject(receiver); // TODO possibly introduce an explicit objectview_cast for downcasts?
             if (window && window->contentItem()) {
                 int bestCandidate;
                 const ObjectIds objects = recursiveItemsAt(window->contentItem(), mouseEv->pos(),
