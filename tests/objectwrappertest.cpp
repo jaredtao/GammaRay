@@ -234,6 +234,8 @@ public:
     LinkedList *next() const { return m_next; }
     LinkedList *prev() const { return m_prev; }
 
+    void setNext(LinkedList *next) { m_next = next; next->m_prev = this; }
+
 private:
     int m_i;
     LinkedList *m_next = nullptr;
@@ -292,7 +294,7 @@ DECLARE_OBJECT_WRAPPER(QObjectTestObject,
 DECLARE_OBJECT_WRAPPER(LinkedList,
                        RO_PROP(i, Getter)
                        RO_PROP(prev, Getter | NonOwningPointer)
-                       RO_PROP(next, Getter | OwningPointer)
+                       RW_PROP(next, setNext, Getter | OwningPointer)
 )
 DECLARE_OBJECT_WRAPPER(DisabledCachingTestObject,
                        DISABLE_CACHING
@@ -554,6 +556,20 @@ private slots:
         w->setY(20);
         QCOMPARE(w->y(), 20);
         QCOMPARE(w->y(), t.y);
+    }
+
+
+    void testWritingUnwrapping()
+    {
+        LinkedList ll { 5, new LinkedList(6) };
+        ObjectHandle<LinkedList> w = ObjectShadowDataRepository::handleForObject(&ll);
+        ObjectHandle<LinkedList> w2 = ObjectShadowDataRepository::handleForObject(new LinkedList { 7, new LinkedList(8) });
+
+        static_assert(std::is_same<decltype(unwrap(w2)), LinkedList *>::value);
+
+        QCOMPARE(w->next()->next(), ObjectHandle<LinkedList>{});
+        w->next()->setNext(w2);
+        QCOMPARE(w->next()->next(), w2);
     }
 
 

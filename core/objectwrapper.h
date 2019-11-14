@@ -117,11 +117,11 @@ void SetterName(decltype(fetch_##FieldName<Flags>(static_cast<value_type*>(nullp
     QSemaphoreReleaser releaser { &d_ptr()->semaphore }; \
     \
     IF_CONSTEXPR (cachingDisabled<ThisClass_t>::value) { \
-        write_##FieldName<Flags>(object(), newValue); \
+        write_##FieldName<Flags>(object(), unwrap(newValue)); \
     } else { \
         d_ptr()->cache<value_type>()->get< StorageIndex >() = newValue; \
         /* TODO Defer calling the setter */ \
-        write_##FieldName<Flags>(object(), newValue); \
+        write_##FieldName<Flags>(object(), unwrap(newValue)); \
     } \
 } \
 
@@ -425,9 +425,13 @@ ADD_TO_METAOBJECT(FieldName, decltype(fetch_##FieldName<Flags | CustomCommand>(s
 
 
 #define DIRECT_ACCESS_METHOD(MethodName) \
-template<typename ...Args> auto MethodName(Args &&...args) -> decltype(object()->MethodName(args...)) \
+template<typename ...Args> auto MethodName(Args &&...args) -> decltype(object()->MethodName(unwrap(args)...)) \
 { \
-    return object()->MethodName(args...); \
+    return object()->MethodName(unwrap(args)...); \
+} \
+template<typename ...Args> auto MethodName(Args &&...args) const -> decltype(object()->MethodName(unwrap(args)...)) \
+{ \
+    return object()->MethodName(unwrap(args)...); \
 } \
 
 
@@ -1253,6 +1257,68 @@ auto wrap(QVector<T*> list) -> second_t<typename ObjectWrapper<T>::value_type, t
     }
     //     std::transform(list.cbegin(), list.cend(), handleList.begin(), [](T *t) { return ObjectView<T> { t }; });
     return handleList;
+}
+
+template<typename T, typename ...Args>
+auto unwrap(T && value, Args &&...dummy) -> decltype(std::forward<T>(value)) // Actually this is only supposed to support one argument, the variadic argument list is only to declare this as the fallback option.
+{
+    return std::forward<T>(value);
+}
+template<typename T>
+T *unwrap(const ObjectView<T> &object)
+{
+    return object.object();
+}
+template<typename T>
+T *unwrap(const ObjectHandle<T> &object)
+{
+    return object.object();
+}
+template<typename T>
+T *unwrap(ObjectView<T> &object)
+{
+    return object.object();
+}
+template<typename T>
+T *unwrap(ObjectHandle<T> &object)
+{
+    return object.object();
+}
+template<typename T>
+auto unwrap(QList<ObjectView<T>> list) -> QList<T*>
+{
+    QList<T*> unwrappedList;
+    for (T *t : qAsConst(list)) {
+        unwrappedList.push_back(t.object());
+    }
+    return unwrappedList;
+}
+template<typename T>
+auto unwrap(QList<ObjectHandle<T>> list) -> QList<T*>
+{
+    QList<T*> unwrappedList;
+    for (T *t : qAsConst(list)) {
+        unwrappedList.push_back(t.object());
+    }
+    return unwrappedList;
+}
+template<typename T>
+auto unwrap(QVector<ObjectView<T>> list) -> QVector<T*>
+{
+    QVector<T*> unwrappedList;
+    for (T *t : qAsConst(list)) {
+        unwrappedList.push_back(t.object());
+    }
+    return unwrappedList;
+}
+template<typename T>
+auto unwrap(QVector<ObjectHandle<T>> list) -> QVector<T*>
+{
+    QVector<T*> unwrappedList;
+    for (T *t : qAsConst(list)) {
+        unwrappedList.push_back(t.object());
+    }
+    return unwrappedList;
 }
 
 }
