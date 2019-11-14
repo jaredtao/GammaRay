@@ -832,6 +832,14 @@ private:
     std::unique_ptr<PropertyCacheBase> m_cache;
 };
 
+
+template<typename T> class ObjectView;
+template<typename T> class ObjectHandle;
+template<typename T> bool operator==(const ObjectHandle<T> &lhs, const ObjectView<T> &rhs);
+template<typename T> bool operator!=(const ObjectHandle<T> &lhs, const ObjectView<T> &rhs);
+template<typename T> bool operator==(const ObjectView<T> &lhs, const ObjectHandle<T> &rhs);
+template<typename T> bool operator!=(const ObjectView<T> &lhs, const ObjectHandle<T> &rhs);
+
 template<typename T>
 class ObjectHandle
 {
@@ -846,6 +854,37 @@ public:
 
     explicit operator bool() const;
     explicit operator T*() const;
+
+    friend bool operator==(const ObjectHandle<T> &lhs, const ObjectHandle<T> &rhs)
+    {
+        return lhs.m_d.d_ptr() == rhs.m_d.d_ptr();
+    }
+    friend bool operator!=(const ObjectHandle<T> &lhs, const ObjectHandle<T> &rhs)
+    {
+        return lhs.m_d.d_ptr() != rhs.m_d.d_ptr();
+    }
+
+    friend bool operator== <T>(const ObjectHandle<T> &lhs, const ObjectView<T> &rhs);
+    friend bool operator!= <T>(const ObjectHandle<T> &lhs, const ObjectView<T> &rhs);
+    friend bool operator== <T>(const ObjectView<T> &lhs, const ObjectHandle<T> &rhs);
+    friend bool operator!= <T>(const ObjectView<T> &lhs, const ObjectHandle<T> &rhs);
+
+    friend bool operator<(const ObjectHandle<T> &lhs, const ObjectHandle<T> &rhs)
+    {
+        return lhs.m_d.d_ptr() < rhs.m_d.d_ptr();
+    }
+    friend bool operator>(const ObjectHandle<T> &lhs, const ObjectHandle<T> &rhs)
+    {
+        return lhs.m_d.d_ptr() > rhs.m_d.d_ptr();
+    }
+    friend bool operator<=(const ObjectHandle<T> &lhs, const ObjectHandle<T> &rhs)
+    {
+        return lhs.m_d.d_ptr() <= rhs.m_d.d_ptr();
+    }
+    friend bool operator>=(const ObjectHandle<T> &lhs, const ObjectHandle<T> &rhs)
+    {
+        return lhs.m_d.d_ptr() >= rhs.m_d.d_ptr();
+    }
 
     template<typename U>
     operator ObjectHandle<U>() const
@@ -883,6 +922,12 @@ public:
 private:
     ObjectWrapper<T> m_d;
 };
+
+template<typename T>
+uint qHash(const ObjectHandle<T> &key, uint seed)
+{
+    return qHash(key.object(), seed);
+}
 
 template<typename T>
 class ObjectView
@@ -924,6 +969,40 @@ public:
     }
 
 
+    friend bool operator== <T>(const ObjectHandle<T> &lhs, const ObjectView<T> &rhs);
+    friend bool operator!= <T>(const ObjectHandle<T> &lhs, const ObjectView<T> &rhs);
+    friend bool operator== <T>(const ObjectView<T> &lhs, const ObjectHandle<T> &rhs);
+    friend bool operator!= <T>(const ObjectView<T> &lhs, const ObjectHandle<T> &rhs);
+
+
+    friend bool operator==(const ObjectView<T> &lhs, const ObjectView<T> &rhs)
+    {
+        return !(lhs != rhs);
+    }
+    friend bool operator!=(const ObjectView<T> &lhs, const ObjectView<T> &rhs)
+    {
+        // FIXME: Is owner_less actually enough for comparison?
+        return std::owner_less<std::weak_ptr<ObjectWrapperPrivate>>{}(lhs.d, rhs.d)
+        || std::owner_less<std::weak_ptr<ObjectWrapperPrivate>>{}(rhs.d, lhs.d);
+    }
+
+    friend bool operator<(const ObjectView<T> &lhs, const ObjectView<T> &rhs)
+    {
+        return std::owner_less<std::weak_ptr<ObjectWrapperPrivate>>{}(lhs.d, rhs.d);
+    }
+    friend bool operator>(const ObjectView<T> &lhs, const ObjectView<T> &rhs)
+    {
+        return std::owner_less<std::weak_ptr<ObjectWrapperPrivate>>{}(rhs.d, lhs.d);
+    }
+    friend bool operator<=(const ObjectView<T> &lhs, const ObjectView<T> &rhs)
+    {
+        return !std::owner_less<std::weak_ptr<ObjectWrapperPrivate>>{}(rhs.d, lhs.d);
+    }
+    friend bool operator>=(const ObjectView<T> &lhs, const ObjectView<T> &rhs)
+    {
+        return !std::owner_less<std::weak_ptr<ObjectWrapperPrivate>>{}(lhs.d, rhs.d);
+    }
+
     static ObjectView nullhandle();
 
     inline ObjectHandle<T> lock() const;
@@ -938,6 +1017,39 @@ public:
 private:
     std::weak_ptr<ObjectWrapperPrivate> d;
 };
+
+template<typename T>
+uint qHash(const ObjectView<T> &key, uint seed)
+{
+    return qHash(key.object(), seed);
+}
+
+template<typename T>
+bool operator==(const ObjectHandle<T> &lhs, const ObjectView<T> &rhs)
+{
+//     return lhs.m_d.d_ptr() == rhs.d;
+    return !(lhs != rhs);
+}
+template<typename T>
+bool operator!=(const ObjectHandle<T> &lhs, const ObjectView<T> &rhs)
+{
+//     return lhs.m_d.d_ptr() != rhs.d;
+    // FIXME: Is owner_less actually enough for comparison?
+    return std::owner_less<std::weak_ptr<ObjectWrapperPrivate>>{}(lhs.m_d.cloneD(), rhs.d)
+    || std::owner_less<std::weak_ptr<ObjectWrapperPrivate>>{}(rhs.d, lhs.m_d.cloneD());
+}
+template<typename T>
+bool operator==(const ObjectView<T> &lhs, const ObjectHandle<T> &rhs)
+{
+//     return lhs.d == rhs.m_d.d_ptr();
+    return !(lhs != rhs);
+}
+template<typename T>
+bool operator!=(const ObjectView<T> &lhs, const ObjectHandle<T> &rhs)
+{
+//     return lhs.d != rhs.m_d.d_ptr();
+    return rhs != lhs;
+}
 
 
 class ObjectShadowDataRepository
