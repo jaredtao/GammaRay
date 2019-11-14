@@ -30,6 +30,7 @@
 #define GAMMARAY_OBJECTHANDLE_H
 
 #include <core/probe.h>
+#include <common/objectid.h>
 
 #include <QObject>
 #include <QMetaObject>
@@ -846,6 +847,7 @@ public:
 
     inline T *object() const;
     inline T *data() const;
+    inline ObjectId objectId() const;
 
     template<typename Func, typename ...Args>
     auto call(Func &&f, Args &&...args) -> std::future<decltype(std::declval<T*>()->*f(args...))>;
@@ -876,6 +878,7 @@ public:
     inline const ObjectWrapper<T> &operator*() const;
     inline ObjectWrapper<T> &operator*();
     inline T *object() const;
+    inline ObjectId objectId() const;
 
 private:
     std::weak_ptr<ObjectWrapperPrivate> d;
@@ -1062,6 +1065,11 @@ T *ObjectHandle<T>::data() const
 {
     return m_d.object();
 }
+template<typename T>
+ObjectId ObjectHandle<T>::objectId() const
+{
+    return ObjectId {m_d.object()};
+}
 
 
 
@@ -1145,6 +1153,11 @@ template<typename T>
 T *ObjectView<T>::object() const
 {
     return d.lock()->template object<T>();
+}
+template<typename T>
+ObjectId ObjectView<T>::objectId() const
+{
+    return ObjectId {d.lock()->template object<T>()};
 }
 
 // === ObjectShadowDataRepository ===
