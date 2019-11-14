@@ -438,13 +438,13 @@ template<typename ...Args> auto MethodName(Args &&...args) const -> decltype(obj
 #define BLOCKING_ASYNC_METHOD(MethodName) \
 template<typename ...Args> auto MethodName(Args &&...args) -> decltype(object()->MethodName(args...)) \
 { \
-    return call(object(), &value_type::MethodName, args...).get(); \
+    return ObjectWrapperPrivate::call(object(), &value_type::MethodName, args...).get(); \
 } \
 
 #define ASYNC_VOID_METHOD(MethodName) \
 template<typename ...Args> void MethodName(Args &&...args) \
 { \
-    call(object(), &value_type::MethodName, args...); \
+    ObjectWrapperPrivate::callVoid(object(), &value_type::MethodName, args...); \
 } \
 
 /**
@@ -816,6 +816,13 @@ public:
 
     std::vector<QMetaObject::Connection> connections;
     QSemaphore semaphore { 1 };
+
+    template<typename T, typename Func, typename ...Args>
+    static void callVoid(T *object, Func &&f, Args &&...args);
+
+    template<typename T, typename Func, typename ...Args>
+    static auto call(T *object, Func &&f, Args &&...args) -> std::future<decltype((std::declval<T*>()->*f)(args...))>;
+
 private:
     std::unique_ptr<PropertyCacheBase> m_cache;
 };
@@ -853,8 +860,6 @@ public:
     inline T *data() const;
     inline ObjectId objectId() const;
 
-    template<typename Func, typename ...Args>
-    auto call(Func &&f, Args &&...args) -> std::future<decltype(std::declval<T*>()->*f(args...))>;
 
 
     static MetaObject *staticMetaObject();
@@ -1077,22 +1082,41 @@ ObjectId ObjectHandle<T>::objectId() const
 
 
 
-template<typename T>
-template<typename Func, typename ...Args>
-auto ObjectHandle<T>::call(Func &&f, Args &&...args) -> std::future<decltype(std::declval<T*>()->*f(args...))>
+
+
+template<typename T, typename Func, typename ...Args>
+void ObjectWrapperPrivate::callVoid(T *object, Func &&f, Args &&...args)
 {
-    if (!Probe::instance()->isValidObject(m_d.object())) {
+    if (!Probe::instance()->isValidObject(object)) {
+        return;
+    }
+
+    if (object->thread() == QThread::currentThread()) {
+        (object->*f)(args...);
+    } else {
+        T *ptr = object;
+        QMetaObject::invokeMethod(object, [ptr, f, args...]() {
+            (ptr->*f)(args...);
+        }, Qt::QueuedConnection);
+    }
+}
+
+template<typename T, typename Func, typename ...Args>
+auto ObjectWrapperPrivate::call(T *object, Func &&f, Args &&...args) ->
+    std::future<decltype((std::declval<T*>()->*f)(args...))>
+{
+    if (!Probe::instance()->isValidObject(object)) {
         return {};
     }
 
-    std::promise<decltype(m_d.object()->*f(args...))> p;
+    std::promise<decltype((object->*f)(args...))> p;
     auto future = p.get_future();
-    if (m_d.object()->thread == QThread::currentThread()) {
-        p.set_value(m_d.object()->*f(args...));
+    if (object->thread() == QThread::currentThread()) {
+        p.set_value((object->*f)(args...));
     } else {
-        T *ptr = m_d->object;
-        QMetaObject::invokeMethod(m_d.object(), [p, ptr, f, args...]() {
-            p.set_value(ptr->*f(args...));
+        T *ptr = object;
+        QMetaObject::invokeMethod(object, [p, ptr, f, args...]() {
+            p.set_value((ptr->*f)(args...));
         }, Qt::QueuedConnection);
     }
     return future;
