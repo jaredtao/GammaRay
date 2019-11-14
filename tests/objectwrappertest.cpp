@@ -674,6 +674,26 @@ private slots:
         QCOMPARE(w->b(), t.b());
 
     }
+
+    void testMisc()
+    {
+        ObjectHandle<SimpleNonQObjectTestObject> emptyHandle {};
+        ObjectView<SimpleNonQObjectTestObject> emptyView {};
+        QVERIFY(!emptyHandle);
+        QVERIFY(!emptyView);
+
+        ObjectHandle<QObjectTestObject> staleHandle {};
+        ObjectView<QObjectTestObject> staleView {};
+        {
+            QObjectTestObject o {};
+            staleHandle = ObjectShadowDataRepository::handleForObject(&o);
+            staleView = ObjectShadowDataRepository::viewForObject(&o);
+        }
+        QVERIFY(!emptyHandle);
+        QVERIFY(!emptyView);
+
+
+    }
 };
 
 }

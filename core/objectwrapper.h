@@ -531,7 +531,7 @@ public: \
     \
     Class *object() const \
     { \
-        return d->object<Class>(); \
+        return d ? d->object<Class>() : nullptr; \
     } \
  \
     using PropertyCache_t = PropertyCache<Class>; \
@@ -584,7 +584,7 @@ public: \
     \
     Class *object() const \
     { \
-        return d->object<Class>(); \
+        return d ? d->object<Class>() : nullptr; \
     } \
  \
     ObjectWrapperPrivate *d_ptr() const { return d.get(); } \
@@ -631,7 +631,7 @@ public: \
     \
     Class *object() const \
     { \
-        return d_ptr()->object<Class>(); \
+        return d_ptr() ? d_ptr()->object<Class>() : nullptr; \
     } \
     \
     void _clear() \
@@ -991,12 +991,12 @@ public:
     template<typename U = T>
     typename std::enable_if<!std::is_base_of<QObject, U>::value, bool>::type isValid() const
     {
-        return !d.expired() && d.lock()->template object<QObject>();
+        return !d.expired() && d.lock()->template object<U>();
     }
     template<typename U = T>
     typename std::enable_if<std::is_base_of<QObject, U>::value, bool>::type isValid() const
     {
-        return !d.expired() && Probe::instance()->isValidObject(d.lock()->template object<QObject>()); // FIXME we should not need to lock this just to do a null check
+        return !d.expired() && Probe::instance()->isValidObject(d.lock()->template object<U>()); // FIXME we should not need to lock this just to do a null check
     }
 
 
