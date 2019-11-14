@@ -135,18 +135,34 @@ void SetterName(decltype(fetch_##FieldName<Flags>(static_cast<value_type*>(nullp
  * This is internal for use in other macros.
  */
 #define DEFINE_FETCH_FUNCTION_PROP(FieldName) \
-template<int Flags, typename T = pimplClass_t<ThisClass_t>, typename std::enable_if<(Flags & DptrGetter) != 0>::type* = nullptr> /*FIXME T must be the private class! */ \
+template<int Flags, typename T = pimplClass_t<ThisClass_t>, typename std::enable_if<(Flags & DptrGetter) != 0 && (Flags & NonConst) == 0>::type* = nullptr> \
 static auto fetch_##FieldName(const value_type *object) \
 -> decltype(wrap<Flags>(std::declval<T>().FieldName())) \
 { \
     return wrap<Flags>(static_cast<const T*>(T::get(object))->FieldName()); \
 } \
-template<int Flags, typename T = pimplClass_t<ThisClass_t>, typename std::enable_if<(Flags & DptrMember) != 0>::type* = nullptr> /*FIXME T must be the private class! */ \
+template<int Flags, typename T = pimplClass_t<ThisClass_t>, typename std::enable_if<(Flags & DptrMember) != 0 && (Flags & NonConst) == 0>::type* = nullptr> \
 static auto fetch_##FieldName(const value_type *object) \
 -> decltype(wrap<Flags>(std::declval<T>().FieldName)) \
 { \
     return wrap<Flags>(static_cast<const T*>(T::get(object))->FieldName); \
 } \
+\
+template<int Flags, typename T = pimplClass_t<ThisClass_t>, typename std::enable_if<(Flags & DptrGetter) != 0 && (Flags & NonConst) != 0>::type* = nullptr> \
+static auto fetch_##FieldName(value_type *object) \
+-> decltype(wrap<Flags>(std::declval<T>().FieldName())) \
+{ \
+    static_assert(!std::is_same<T, void>::value, "Unknown Private Class: You need to add a PRIVATE_CLASS(...) macro to your wrapper definition."); /*FIXME can we make that assert actually effective instead of SFINAE?*/ \
+    return wrap<Flags>(static_cast<T*>(T::get(object))->FieldName()); \
+} \
+template<int Flags, typename T = pimplClass_t<ThisClass_t>, typename std::enable_if<(Flags & DptrMember) != 0 && (Flags & NonConst) != 0>::type* = nullptr> \
+static auto fetch_##FieldName( value_type *object) \
+-> decltype(wrap<Flags>(std::declval<T>().FieldName)) \
+{ \
+    static_assert(!std::is_same<T, void>::value, "Unknown Private Class: You need to add a PRIVATE_CLASS(...) macro to your wrapper definition."); /*FIXME can we make that assert actually effective instead of SFINAE?*/ \
+    return wrap<Flags>(static_cast<T*>(T::get(object))->FieldName); \
+} \
+\
 template<int Flags, typename T = value_type, typename std::enable_if<(Flags & Getter) != 0 && (Flags & NonConst) == 0>::type* = nullptr> \
 static auto fetch_##FieldName(const T *object) \
 -> decltype(wrap<Flags>(std::declval<T>().FieldName())) \
