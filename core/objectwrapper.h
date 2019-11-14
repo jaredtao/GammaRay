@@ -1052,6 +1052,7 @@ public:
 
     // TODO: Do we actually want implicit locking for ObjectView? (Yes, we do!)
     inline const ObjectHandle<T> operator->() const;
+    inline ObjectHandle<T> operator->();
     inline const ObjectWrapper<T> &operator*() const;
     inline ObjectWrapper<T> &operator*();
     inline T *object() const;
@@ -1369,6 +1370,12 @@ ObjectView<T> ObjectView<T>::nullhandle()
 
 template<typename T>
 const ObjectHandle<T> ObjectView<T>::operator->() const
+{
+    return lock();
+}
+
+template<typename T>
+ObjectHandle<T> ObjectView<T>::operator->()
 {
     return lock();
 }
