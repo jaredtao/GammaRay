@@ -479,6 +479,10 @@ public: \
         return mo.get(); \
     } \
  \
+    MetaObject *metaObject() { \
+        return d_ptr()->metaObject(); \
+    } \
+ \
     explicit ObjectWrapper<Class>() = default; \
  \
 private: \
@@ -681,6 +685,8 @@ struct PropertyCacheBase
      * (might NOT be a valid pointer to the most-derived object)
      */
     virtual void *object() const = 0;
+
+    virtual MetaObject *metaObject() const = 0;
 };
 
 class ObjectWrapperPrivate;
@@ -742,6 +748,11 @@ struct PropertyCache final : PropertyCacheBase
         return m_object;
     }
 
+    MetaObject *metaObject() const override
+    {
+        return ObjectWrapper_t::staticMetaObject();
+    }
+
 private:
     template<typename Head, typename ...Rest>
     void updateBases(ObjectWrapperPrivate *d, TemplateParamList<Head, Rest...>)
@@ -799,6 +810,11 @@ public:
     T *object() const
     {
         return cache<T>()->m_object;
+    }
+
+    MetaObject *metaObject() const
+    {
+        return m_cache->metaObject();
     }
 
     explicit ObjectWrapperPrivate(std::unique_ptr<PropertyCacheBase> cache)

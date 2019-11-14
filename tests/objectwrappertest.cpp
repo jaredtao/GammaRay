@@ -586,6 +586,8 @@ private slots:
 
         QCOMPARE(v->x(), t.x());
         QCOMPARE(v->y(), t.y);
+
+        QCOMPARE(v->metaObject(), w->staticMetaObject());
     }
 
 
@@ -613,6 +615,8 @@ private slots:
 
         // Test MetaObject
         auto mo = ObjectHandle<MultiInheritanceTestObject>::staticMetaObject();
+        QCOMPARE(v->metaObject(), mo);
+        QCOMPARE(u->metaObject(), mo);
 
         QCOMPARE(mo->className(), QStringLiteral("MultiInheritanceTestObject"));
         QCOMPARE(mo->propertyCount(), 5);
