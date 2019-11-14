@@ -1497,10 +1497,23 @@ auto wrap(T *object) -> second_t<typename ObjectWrapper<T>::value_type, typename
     return ObjectShadowDataRepository::handleForObject(object);
 }
 template<int flags, typename T>
-auto wrap(const QList<T*> &list) -> second_t<typename ObjectWrapper<T>::value_type, QList<ObjectView<T>>>
+auto wrap(QList<T*> list) -> second_t<typename ObjectWrapper<T>::value_type, typename std::enable_if<(flags & NonOwningPointer) != 0, QList<ObjectView<T>>>::type>
 {
     QList<ObjectView<T>> handleList;
-    std::transform(list.cBegin(), list.cEnd(), handleList.begin(), [](T *t) { return ObjectShadowDataRepository::viewForObject(t); });
+    for (T *t : qAsConst(list)) {
+        handleList.push_back(ObjectShadowDataRepository::viewForObject(t));
+    }
+    //     std::transform(list.cbegin(), list.cend(), handleList.begin(), [](T *t) { return ObjectView<T> { t }; });
+    return handleList;
+}
+template<int flags, typename T>
+auto wrap(QList<T*> list) -> second_t<typename ObjectWrapper<T>::value_type, typename std::enable_if<(flags & OwningPointer) != 0, QList<ObjectHandle<T>>>::type>
+{
+    QList<ObjectHandle<T>> handleList;
+    for (T *t : qAsConst(list)) {
+        handleList.push_back(ObjectShadowDataRepository::handleForObject(t));
+    }
+    //     std::transform(list.cbegin(), list.cend(), handleList.begin(), [](T *t) { return ObjectView<T> { t }; });
     return handleList;
 }
 template<int flags, typename T>
