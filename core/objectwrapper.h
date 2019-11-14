@@ -874,6 +874,17 @@ public:
     explicit operator bool() const;
     explicit operator T*() const;
 
+    template<typename U = T>
+    typename std::enable_if<!std::is_base_of<QObject, U>::value, bool>::type isValid() const
+    {
+        return m_d.object();
+    }
+    template<typename U = T>
+    typename std::enable_if<std::is_base_of<QObject, U>::value, bool>::type isValid() const
+    {
+        return Probe::instance()->isValidObject(m_d.object());
+    }
+
     friend bool operator==(const ObjectHandle<T> &lhs, const ObjectHandle<T> &rhs)
     {
         return lhs.m_d.d_ptr() == rhs.m_d.d_ptr();
@@ -956,6 +967,18 @@ public:
     explicit ObjectView() = default;
     explicit ObjectView(std::weak_ptr<ObjectWrapperPrivate> controlBlock);
     explicit operator bool() const;
+
+    template<typename U = T>
+    typename std::enable_if<!std::is_base_of<QObject, U>::value, bool>::type isValid() const
+    {
+        return !d.expired() && d.lock()->template object<QObject>();
+    }
+    template<typename U = T>
+    typename std::enable_if<std::is_base_of<QObject, U>::value, bool>::type isValid() const
+    {
+        return !d.expired() && Probe::instance()->isValidObject(d.lock()->template object<QObject>()); // FIXME we should not need to lock this just to do a null check
+    }
+
 
     template<typename U>
     static auto castHelper(const ObjectView<T> &in) -> typename std::enable_if<std::is_base_of<T, U>::value, ObjectView<U>>::type {
@@ -1211,7 +1234,7 @@ ObjectHandle<T>::ObjectHandle(std::shared_ptr<ObjectWrapperPrivate> d)
 template<typename T>
 ObjectHandle<T>::operator bool() const
 {
-    return Probe::instance()->isValidObject(m_d.object());
+    return isValid();
 }
 
 template<typename T>
@@ -1330,7 +1353,7 @@ ObjectView<T>::ObjectView(std::weak_ptr<ObjectWrapperPrivate> controlBlock)
 template<typename T>
 ObjectView<T>::operator bool() const
 {
-    return !d.expired() && Probe::instance()->isValidObject(d.lock()->template object<QObject>()); // FIXME we should not need to lock this just to do a null check
+    return isValid();
 }
 
 template<typename T>
