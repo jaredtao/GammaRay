@@ -1056,6 +1056,7 @@ public:
     inline const ObjectWrapper<T> &operator*() const;
     inline ObjectWrapper<T> &operator*();
     inline T *object() const;
+    inline T *data() const;
     inline ObjectId objectId() const;
 
     inline void clear();
@@ -1394,6 +1395,11 @@ ObjectWrapper<T> &ObjectView<T>::operator*()
 
 template<typename T>
 T *ObjectView<T>::object() const
+{
+    return d.lock()->template object<T>();
+}
+template<typename T>
+T *ObjectView<T>::data() const
 {
     return d.lock()->template object<T>();
 }
